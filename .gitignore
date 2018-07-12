@@ -1,0 +1,12 @@
+*~
+out/*
+ChangeLog
+*-autoloads.el
+*-pkg.el
+*.elc
+\#*\#
+.\#*
+/out/
+*-autoloads.el
+*-pkg.el
+/.cask/
