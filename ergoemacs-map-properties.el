@@ -1,6 +1,6 @@
 ;;; ergoemacs-map-properties.el --- Ergoemacs map interface -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2018  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-map-properties.el
 ;; Description:
@@ -262,6 +262,8 @@ file."
          (extras (expand-file-name "ergoemacs-extras" user-emacs-directory))
          (file2 (expand-file-name (format "ergoemacs-%s-%s.el%s" (or other "global") ergoemacs--system (or (and ergoemacs--gzip ".gz") ""))
                                   extras)))
+    (if (not (file-exists-p extras))
+        (make-directory extras t))
     (or
      (and (file-readable-p file2) file2)
      (and (file-readable-p file) file)
@@ -436,7 +438,8 @@ Save information about what HOOK is running function FN."
 
 
 (defvar ergoemacs-map-properties--modify-run-mode-hooks-excluded
-  '(font-lock-mode-hook)
+  '(font-lock-mode-hook emojify-emojify-mode-line mu4e-update-mail-and-index
+    change-major-mode-hook after-change-major-mode-hook)
   "List of hooks where keymaps should not be modified.")
 
 (defun ergoemacs-map-properties--modify-run-mode-hooks-p (hook)
@@ -467,9 +470,9 @@ This tests if HOOK is:
                                            (stringp tmp)
                                            (string-match-p  "^Ergoemacs protect local" tmp)))
                         fn
-                      (lambda() "Ergoemacs protect local"
-                        (ergoemacs-map-properties--protect-local hook fn)
-                        (funcall fn))))
+                      `(lambda() "Ergoemacs protect local"
+                         (ergoemacs-map-properties--protect-local ',hook ',fn)
+                         (funcall ',fn))))
                   hook-value))
                 (t ;; For now do nothing
                  hook-value))))))))
@@ -611,7 +614,9 @@ These keymaps are saved in `ergoemacs-map-properties--hook-map-hash'."
                (if tmp
                    (if (eq tmp :override-p) t nil)
                  (if (not (functionp (nth 2 key))) nil
-                   (if (string-match-p ergoemacs-map-properties--deferred-hooks-directory-regexp (find-lisp-object-file-name (nth 2 key) (symbol-function (nth 2 key))))
+                   (if (and (setq tmp (find-lisp-object-file-name (nth 2 key) (symbol-function (nth 2 key))))
+			    (stringp tmp)
+			    (string-match-p ergoemacs-map-properties--deferred-hooks-directory-regexp tmp))
                        (progn
                          (puthash (nth 2 key) :deferred-p ergoemacs-map-properties--override-map-hash)
                          nil)
@@ -649,7 +654,7 @@ These keymaps are saved in `ergoemacs-map-properties--hook-map-hash'."
           (ergoemacs-timing ergoemacs-create-global
             (let* ((emacs-exe (ergoemacs-emacs-exe))
                    (default-directory (expand-file-name (file-name-directory (locate-library "ergoemacs-mode"))))
-                   (cmd (format "%s -L %s --batch --load \"ergoemacs-mode\" -Q --eval \"(ergoemacs-map-properties--default-global-gen) (kill-emacs)\"" emacs-exe default-directory)))
+                   (cmd (format "%s -L %s --batch --load \"ergoemacs-mode\" -Q --eval \"(progn (ergoemacs-map-properties--default-global-gen) (kill-emacs))\"" emacs-exe default-directory)))
               (message "%s" (shell-command-to-string cmd))
               (ergoemacs-map-properties--get-original-global-map))))))))
 
@@ -903,7 +908,7 @@ When DROP is non-nil, drop any found maps from `ergoemacs-map-properties--known-
 	;; (message "%s" map-list)
 	ergoemacs-map-properties--get-or-generate-map-key))))))
 
-(defun ergoemacs-map-properties--label (keymap &optional map-key struct)
+(defun ergoemacs-map-properties--label (keymap &optional map-key struct-in)
   "Label an `ergoemacs-mode' touched KEYMAP.
 MAP-KEY is the identifier of the map name.
 STRUCT is the keymap structure for the current map."
@@ -914,15 +919,11 @@ STRUCT is the keymap structure for the current map."
        (map-key
 	(error "Will not label a composed map's members to %s" map-key))
        (t
-	(let (;; (parent (keymap-parent keymap))
-	      (breadcrumb-base ergoemacs-map--breadcrumb)
-	      (struct (or struct (ergoemacs-gethash map-key ergoemacs-map-properties--key-struct)))
-              ;; FIXME: This `struct' refers to the arg rather than to the var
-              ;; we just defined on the previous line!!
-	      (comp (plist-get struct :composed))
-	      (comp-list (ergoemacs-map-properties--composed-list keymap))
-	      from-prop-p
-	      (i 0))
+	(let* ((breadcrumb-base ergoemacs-map--breadcrumb)
+	       (comp (plist-get (or struct-in (ergoemacs-gethash map-key ergoemacs-map-properties--key-struct))  :composed))
+	       (comp-list (ergoemacs-map-properties--composed-list keymap))
+	       from-prop-p
+	       (i 0))
 	  (unless (= (length comp) (length comp-list))
 	    (setq comp nil))
 	  (when (and ergoemacs-map-properties--breadcrumb
@@ -938,17 +939,13 @@ STRUCT is the keymap structure for the current map."
 	    (if comp
 		(ergoemacs :label map nil (pop comp))
 	      (ergoemacs :label map)))
-	  ;; (when parent
-	  ;;   (when (and breadcrumb-base (not (string= breadcrumb-base "")))
-	  ;;     (setq ergoemacs-map--breadcrumb (concat breadcrumb-base "-parent")))
-	  ;;   (ergoemacs :label parent nil (plist-get struct :parent)))
 	  (if from-prop-p
 	      (setq ergoemacs-map-properties--breadcrumb breadcrumb-base)
 	    (setq ergoemacs-map--breadcrumb breadcrumb-base))))))
      (t
       (let* ((map keymap)
 	     (map-key (or map-key
-			  (plist-get struct :map-key)
+			  (plist-get struct-in :map-key)
 			  (ergoemacs-map-properties--get-or-generate-map-key map)))
 	     char-table
 	     indirect-p
@@ -985,10 +982,7 @@ STRUCT is the keymap structure for the current map."
 	      (setq old-plist (list :map-key map-key))
 	      (unless indirect-p
 		(push (cons 'ergoemacs-labeled
-                            ;; FIXME: These functions have no effect at all, so
-                            ;; I strongly doubt they need to be interactive!
-			    (lambda() (interactive) old-plist))
-                      map))
+			    `(lambda() (interactive) ',old-plist)) map))
 	      (unless indirect-p
 		(when label
 		  (push label map))
@@ -996,20 +990,12 @@ STRUCT is the keymap structure for the current map."
 		  (push char-table map))
 		(push 'keymap map)))
           (when parent
-	    ;; (if (and breadcrumb-base (not (string= breadcrumb-base "")))
-	    ;; 	(setq ergoemacs-map--breadcrumb (concat breadcrumb-base "-parent"))
-	    ;;   (when (setq ergoemacs-map-properties--breadcrumb (gethash map-key ergoemacs-breadcrumb-hash))
-	    ;; 	(setq ergoemacs-map-properties--breadcrumb (format "%s-parent" ergoemacs-map-properties--breadcrumb))
-	    ;; 	;; (message "Set %s!" ergoemacs-map-properties--breadcrumb)
-	    ;; 	))
-	    ;; (ergoemacs :label parent nil (plist-get struct :parent))
 	    (set-keymap-parent map parent)
 	    (setq ergoemacs-map--breadcrumb breadcrumb-base)))
 	(if indirect-p
 	    (puthash keymap old-plist ergoemacs-map-properties--indirect-keymaps)
 	  (unless (ignore-errors (ergoemacs-setcdr keymap (cdr map)))
-	    (cl-pushnew (cons old-plist (cdr keymap))
-                        ergoemacs-map-properties--const-keymaps)))
+	    (cl-pushnew (cons old-plist (cdr keymap)) ergoemacs-map-properties--const-keymaps)))
 	map)))))
 
 (defun ergoemacs-map-properties--empty-p (keymap &optional labeled-is-keymap-p)

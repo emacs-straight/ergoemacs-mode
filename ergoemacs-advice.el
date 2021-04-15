@@ -1,6 +1,6 @@
 ;;; ergoemacs-advice.el --- Ergoemacs advices -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2015  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-advice.el
 ;; Description:
@@ -57,7 +57,13 @@
 (declare-function ergoemacs-translate--define-key "ergoemacs-translate")
 (declare-function ergoemacs-translate--apply-key "ergoemacs-translate")
 (declare-function ergoemacs-major-mode-menu-map "ergoemacs-lib")
-
+(declare-function ergoemacs-translate--get "ergoemacs-translate")
+(declare-function ergoemacs-translate--keymap "ergoemacs-translate")
+(declare-function ergoemacs-command-loop--modal-p "ergoemacs-command-loop")
+(declare-function ergoemacs-translation-struct-keymap-modal "ergoemacs-translate")
+(declare-function ergoemacs-command-loop--internal "ergoemacs-command-loop")
+(declare-function ergoemacs-command-loop--temp-message "ergoemacs-command-loop")
+(declare-function ergoemacs-key-description "ergoemacs-key-description")
 
 (defvar ergoemacs-advice--temp-replace-functions nil
   "List of `ergoemacs-mode' temporary replacement functions.
@@ -319,6 +325,53 @@ command selected, instead of rerunning `smex' and
   "Drop single command keys for read-key." ; For compataiblity with emacs 25.5
   :type :before
   (setq ergoemacs-command-loop--single-command-keys nil))
+
+(defvar ergoemacs-command-loop--history)
+
+(defun ergoemacs-mode--undefined-advice (&optional type)
+  "Advice for undefined.
+
+TYPE is the type of translation installed."
+  (let* ((keys (this-single-command-keys))
+	 (type (or type :normal))
+	 (translation (ergoemacs-translate--get type))
+	 (local-keymap (ergoemacs-translate--keymap translation))
+	 (local-key (substring keys -1))
+	 modal-p)
+    (when (setq modal-p (ergoemacs :modal-p))
+      (setq local-keymap (ergoemacs-translation-struct-keymap-modal modal-p)))
+    (if (lookup-key local-keymap local-key)
+	(let ((i 1)) ;; Setup history
+	  (setq ergoemacs-command-loop--history nil)
+	  (while (<= i (- (length keys) 1))
+	    (push (list (substring keys 0 i) :normal nil
+			current-prefix-arg (aref (substring keys (- i 1) i) 0))
+		  ergoemacs-command-loop--history)
+	    (setq i (+ 1 i)))
+	  (ergoemacs-command-loop--internal keys nil nil nil ergoemacs-command-loop--history))
+      (ding)
+      (ergoemacs-command-loop--temp-message "%s does not do anything!"
+                                            (ergoemacs-key-description (this-single-command-keys)))
+      (setq defining-kbd-macro nil)
+      (force-mode-line-update)
+      ;; If this is a down-mouse event, don't reset prefix-arg;
+      ;; pass it to the command run by the up event.
+      (setq prefix-arg
+            (when (memq 'down (event-modifiers last-command-event))
+              current-prefix-arg)))))
+
+(ergoemacs-advice undefined ()
+  "Allow `ergoemacs-mode' to display keys, and intercept ending <apps> keys."
+  :type :around
+  (if (not ergoemacs-mode)
+      ad-do-it
+    (ergoemacs-mode--undefined-advice)))
+
+(ergoemacs-advice handle-shift-selection ()
+  "Allow `ergoemacs-mode' to do shift selection on keys like Alt+# to Alt+3."
+  :type :before
+  (when (eq 'ergoemacs-command-loop--shift-translate (key-binding (this-single-command-keys)))
+    (setq this-command-keys-shift-translated t)))
 
 (provide 'ergoemacs-advice)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

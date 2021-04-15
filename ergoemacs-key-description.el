@@ -1,6 +1,6 @@
 ;;; ergoemacs-key-description.el --- Ergoemacs map interface -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2015  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-key-description.el
 ;; Description:
@@ -51,7 +51,7 @@
 (defvar ergoemacs-use-unicode-symbols)
 (defvar ergoemacs-display-unicode-characters)
 (defvar ergoemacs-display-capitalize-keys)
-(defvar ergoemacs-display-key-use-face-p)
+(defvar ergoemacs-display-key-use-face)
 (defvar ergoemacs-display-small-symbols-for-key-modifiers)
 (defvar ergoemacs-display-use-unicode-brackets-around-keys)
 (defvar ergoemacs-display-without-brackets nil
@@ -123,7 +123,7 @@ This assumes `ergoemacs-display-unicode-characters' is non-nil.  When
     alt-char))
 
 (defun ergoemacs-key-description--unicode-char (&rest chars)
-  "Return the first dispalyable character in CHARS.
+  "Return the first displayable character in CHARS.
 This uses `ergoemacs-key-description--unicode-char--internal'"
   (if ergoemacs-use-unicode-symbols
       (let* ((char-list chars)
@@ -194,10 +194,15 @@ MOD ar the modifiers applied to the key."
       (setq ret (upcase (symbol-name key))))
      (t
       (setq ret (format "%s" key))))
-    (when (and ergoemacs-display-key-use-face-p
+    (setq ret (concat (copy-sequence ret) ""))
+    (when (and ergoemacs-display-key-use-face
                (not ergoemacs-display-small-symbols-for-key-modifiers))
       (add-text-properties 0 (length ret)
-                           '(face ergoemacs-display-key-face) ret))
+                           '(face ergoemacs-display-key-face)
+                           ;; Need to make a copy of ret because the
+                           ;; (length ret) call makes it sometimes
+                           ;; immutable
+                           ret))
     ret))
 
 (defun ergoemacs-key-description--modifier (mod)
@@ -262,10 +267,10 @@ MOD ar the modifiers applied to the key."
       (setq ret (format "%sWin+" (ergoemacs :unicode-or-alt "⊞" "#"))))
      (t
       (setq ret (format "%s+" mod))
-      (when ergoemacs-display-key-use-face-p
+      (when ergoemacs-display-key-use-face
         (add-text-properties 0 (- (length ret) 1)
                              '(face ergoemacs-display-key-face) ret))))
-    (when (and ergoemacs-display-key-use-face-p
+    (when (and ergoemacs-display-key-use-face
                (not ergoemacs-display-small-symbols-for-key-modifiers))
       (add-text-properties 0 (- (length ret) 1)
                            '(face ergoemacs-display-key-face) ret))
@@ -287,7 +292,7 @@ MOD ar the modifiers applied to the key."
   "Create pretty keyboard bindings for menus.
 KBD is the keyboard code, LAYOUT is the keyboard layout."
   (let ((ergoemacs-display-without-brackets t)
-        (ergoemacs-display-key-use-face-p nil)
+        (ergoemacs-display-key-use-face nil)
         (ergoemacs-display-small-symbols-for-key-modifiers nil))
     (ergoemacs-key-description kbd layout)))
 
@@ -331,23 +336,24 @@ KBD is the keyboard code.  LAYOUT is the layout that is used."
                   (push m tmp)))
 	      (setq mod tmp))
             (setq tmp (format "%s%s%s%s"
-                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face-p) "")
+                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face) "")
                                   (and ergoemacs-display-use-unicode-brackets-around-keys (ergoemacs :unicode-or-alt "【" "["))
                                   "[")
                               (mapconcat #'ergoemacs-key-description--modifier
                                          mod "")
                               (ergoemacs-key-description--key ev mod)
-                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face-p) "")
+                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face) "")
                                   (and ergoemacs-display-use-unicode-brackets-around-keys (ergoemacs :unicode-or-alt "】" "]"))
                                   "]")))
-            (when (and ergoemacs-display-small-symbols-for-key-modifiers ergoemacs-display-key-use-face-p)
+            (when (and ergoemacs-display-small-symbols-for-key-modifiers ergoemacs-display-key-use-face)
               (add-text-properties 0 (length tmp)
                                    '(face ergoemacs-display-key-face) tmp))
             (setq ret (format "%s%s%s" ret
-                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face-p) " ")
+                              (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face) " ")
                                   (and ergoemacs-display-use-unicode-brackets-around-keys "")
-                                  " ") tmp)))
-          (substring ret (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face-p) 1)
+                                  " ")
+			      tmp)))
+          (substring ret (or (and (or ergoemacs-display-without-brackets ergoemacs-display-key-use-face) 1)
                              (and ergoemacs-display-use-unicode-brackets-around-keys 0)
                              1)))))))
 
@@ -505,7 +511,7 @@ When HELP is non-nil, insert and add help cross-refences."
         ret)
     (ergoemacs-timing describe-keymap
       (setq ret
-            (ergoemacs-cache (intern (format "describe-keymap-ret%s" (mapconcat (lambda(x) (number-to-string x)) (ergoemacs  map :key-hash) "_")))
+            (ergoemacs-cache (intern (format "describe-keymap-ret%s" (mapconcat (lambda(x) (md5 (format "%s" x))) (ergoemacs  map :key-hash) "_")))
               (ergoemacs-map-keymap
                (lambda (cur-key item)
                  (unless (eq item 'ergoemacs-prefix)
@@ -520,13 +526,13 @@ When HELP is non-nil, insert and add help cross-refences."
               ret)))
     (setq ret (append (list nil t) (sort ret (lambda(e1 e2) (ergoemacs :key-lessp (car e1) (car e2))))))
     (if help
-        (insert (ergoemacs-cache (intern (format "describe-keymap-help%s" (mapconcat (lambda(x) (number-to-string x)) (ergoemacs  map :key-hash) "_")))
+        (insert (ergoemacs-cache (intern (format "describe-keymap-help%s" (mapconcat (lambda(x) (md5 (format "%s" x))) (ergoemacs  map :key-hash) "_")))
                   (with-temp-buffer
                     (dolist (x ret)
                       (ergoemacs-key-description--keymap-item x map t)
                       (insert "\n"))
                     (buffer-string))))
-      (ergoemacs-cache (intern (format "describe-keymap%s" (mapconcat (lambda(x) (number-to-string x)) (ergoemacs  map :key-hash) "_")))
+      (ergoemacs-cache (intern (format "describe-keymap%s" (mapconcat (lambda(x) (md5 (format "%s" x))) (ergoemacs  map :key-hash) "_")))
         (concat "\n" (mapconcat (lambda(x) (ergoemacs-key-description--keymap-item x map)) ret "\n"))))))
 
 (defun ergoemacs-key-description--substitute-command-keys (string)

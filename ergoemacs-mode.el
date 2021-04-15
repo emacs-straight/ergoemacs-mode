@@ -1,6 +1,6 @@
 ;;; ergoemacs-mode.el --- Emacs mode based on common modern interface and ergonomics. -*- lexical-binding: t -*-
 
-;; Copyright © 2007-2010, 2012-2018  Free Software Foundation, Inc.
+;; Copyright © 2007-2010, 2012-2021  Free Software Foundation, Inc.
 
 ;; Author: Xah Lee <xah@xahlee.org>
 ;;         David Capello <davidcapello@gmail.com>
@@ -96,6 +96,9 @@
 
 (declare-function ergoemacs-layouts--customization-type "ergoemacs-layouts")
 
+(declare-function ergoemacs-map-properties--label "ergoemacs-map-properties")
+(declare-function ergoemacs-map-- "ergoemacs-map")
+
 (declare-function persistent-soft-fetch "persistent-soft")
 (declare-function persistent-soft-flush "persistent-soft")
 (declare-function persistent-soft-location-destroy "persistent-flush")
@@ -169,6 +172,7 @@ Added beginning-of-buffer Alt+n (QWERTY notation) and end-of-buffer Alt+Shift+n"
 
 (defcustom ergoemacs-keyboard-mirror nil
   "Specifies which keyboard layout to mirror."
+  :type 'sexp
   :set #'ergoemacs-set-default
   :initialize #'custom-initialize-default
   :group 'ergoemacs-mode)
@@ -317,6 +321,7 @@ The `execute-extended-command' is now \\[execute-extended-command].
                         (add-hook 'after-load-functions #'ergoemacs-after-load-functions)
                         (setq ergoemacs-require--ini-p t
                               ergoemacs-component-struct--apply-ensure-p t)
+			(ergoemacs-setup-override-keymap)                       
                         (if refresh-p
                             (message "Ergoemacs-mode keys refreshed (%s:%s)"
                                      ergoemacs-keyboard-layout (or ergoemacs-theme "standard"))
@@ -487,10 +492,14 @@ NO-MESSAGE doesn't tell anything about clearing the cache."
   (interactive)
   (setq ergoemacs-map--cache-save :remove)
   (ergoemacs-map--cache-save)
-  (dolist (ext '("svg" "png"))
-    (dolist (file (file-expand-wildcards (expand-file-name (concat "*." ext) (expand-file-name "bindings" (expand-file-name "ergoemacs-extras" user-emacs-directory)))))
-      (delete-file file)
-      (message "Remove %s, since keys may have changed." file)))
+  
+  (let ((extras (expand-file-name "ergoemacs-extras" user-emacs-directory)))
+    (if (not (file-exists-p extras))
+        (make-directory extras t))
+    (dolist (ext '("svg" "png"))
+      (dolist (file (file-expand-wildcards (expand-file-name (concat "*." ext) (expand-file-name "bindings" extras))))
+	(delete-file file)
+	(message "Remove %s, since keys may have changed." file))))
 
   (unless no-message
     (message "Clear cache for next startup.")))
@@ -596,7 +605,16 @@ When STORE-P is non-nil, save the tables."
     (ergoemacs-timing (intern (format "load-%s" pkg))
       (load (symbol-name pkg)))))
 
-(defcustom ergoemacs-use-unicode-symbols t
+(require 'unicode-fonts nil t)
+;; (when (featurep 'unicode-fonts)
+;;   (require 'persistent-soft nil t)
+;;   (when (featurep 'persistent-soft)
+;;     (unicode-fonts-setup)))
+
+
+(defcustom ergoemacs-use-unicode-symbols nil
+  ;; (and (featurep 'persistent-soft)
+  ;;      (featurep 'unicode-fonts))
   "Use unicode symbols in display."
   :type 'boolean
   :group 'ergoemacs-mode)
@@ -614,6 +632,7 @@ When STORE-P is non-nil, save the tables."
     (dot ("⠁" "⠂" "⠄" "⡀" "⢀" "⠠" "⠐" "⠈"))
     (fish (">))'>" " >))'>" "  >))'>" "   >))'>" "    >))'>" "   <'((<" "  <'((<" " <'((<")))
   "Spinners for long commands with `ergoemacs-command-loop'."
+  :type 'sexp 
   :group 'ergoemacs-command-loop)
 
 (defcustom ergoemacs-command-loop-spinner (or (and ergoemacs-use-unicode-symbols 'dots) 'standard)
@@ -697,25 +716,25 @@ SYMBOL is the symbol to set, NEW-VALUE is it's value."
 (defvar ergoemacs-override-keymap (make-sparse-keymap)
   "ErgoEmacs override keymap.")
 
+(ergoemacs :label ergoemacs-override-keymap)
+
 (defvar ergoemacs-override-alist nil
   "ErgoEmacs override keymaps.")
 
 (defun ergoemacs-setup-override-keymap ()
   "Setup `ergoemacs-mode' overriding keymap `ergoemacs-override-keymap'."
-  (setq ergoemacs-override-alist `((ergoemacs-mode . ,ergoemacs-override-keymap)))
+  (setq ergoemacs-override-alist `((ergoemacs-mode . ,(ergoemacs ergoemacs-override-keymap))))
   (add-hook 'emulation-mode-map-alists 'ergoemacs-override-alist))
 
 (defun ergoemacs-remove-override-keymap ()
   "Remove `ergoemacs-mode' overriding keymap `ergoemacs-override-keymap'."
   (remove-hook 'emulation-mode-map-alists 'ergoemacs-override-alist))
 
-(add-hook 'ergoemacs-mode-startup-hook #'ergoemacs-setup-override-keymap)
-(add-hook 'ergoemacs-mode-shudown-hook #'ergoemacs-setup-override-keymap)
+;; (add-hook 'ergoemacs-mode-startup-hook 'ergoemacs-setup-override-keymap)
+;; (add-hook 'ergoemacs-mode-shudown-hook 'ergoemacs-setup-override-keymap)
 
 
-
 ;;; Frequently used commands as aliases
-
 (defcustom ergoemacs-use-aliases t
   "Use aliases defined by `ergoemacs-aliases'.
 
@@ -766,7 +785,7 @@ not be useful.  However instead of using
 (defun ergoemacs-load-aliases ()
   "Load aliases defined in `ergoemacs-aliases'."
   (dolist (x ergoemacs-aliases)
-    (defalias (nth 0 x) (nth 1 x))))
+    (eval (macroexpand `(defalias ',(nth 0 x) ',(nth 1 x))) t)))
 
 (autoload 'ergoemacs-component "ergoemacs-macros")
 (autoload 'ergoemacs-theme-component "ergoemacs-macros")
@@ -825,7 +844,7 @@ Valid values are:
   :initialize #'custom-initialize-default
   :group 'ergoemacs-mode)
 
-(defgroup ergoemacs-dispaly nil
+(defgroup ergoemacs-display nil
   "Display Options for `ergoemacs-mode'."
   :group 'ergoemacs-mode)
 
@@ -838,8 +857,7 @@ Valid values are:
   :initialize #'custom-initialize-default
   :group 'ergoemacs-display)
 
-(define-obsolete-variable-alias 'ergoemacs-use-ergoemacs-key-descriptions 'ergoemacs-display-ergoemacs-key-descriptions "Ergoemacs-v5.16")
-
+(define-obsolete-variable-alias 'ergoemacs-use-ergoemacs-key-descriptions 'ergoemacs-display-ergoemacs-key-descriptions)
 
 (defcustom ergoemacs-display-ergoemacs-key-descriptions t
   "Use ergoemacs key descriptions (Alt+)."
@@ -849,7 +867,6 @@ Valid values are:
   :group 'ergoemacs-display)
 
 (define-obsolete-variable-alias 'ergoemacs-use-unicode-brackets 'ergoemacs-display-use-unicode-brackets-around-keys "Ergoemacs-v5.16")
-
 
 (defcustom ergoemacs-display-use-unicode-brackets-around-keys t
   "Use unicode brackets."
@@ -880,11 +897,9 @@ Valid values are:
   :initialize #'custom-initialize-default
   :group 'ergoemacs-display)
 
-(define-obsolete-variable-alias 'ergoemacs-pretty-key-use-face 'ergoemacs-display-key-use-face-p "Ergoemacs-v5.16")
+(define-obsolete-variable-alias 'ergoemacs-pretty-key-use-face-p 'ergoemacs-display-key-use-face "Ergoemacs-v5.16")
 
-;; FIXME: The suffix "-p" stands for "predicate", i.e. a *function*
-;; returning a boolean value.  Shouldn't be used for variables.
-(defcustom ergoemacs-display-key-use-face-p t
+(defcustom ergoemacs-display-key-use-face t
   "Use a button face for keys."
   :type 'boolean
   :set #'ergoemacs-set-default
@@ -973,7 +988,7 @@ Valid values are:
            (sexp :tag "Translated Type")))
   :group 'ergoemacs-command-loop)
 
-(defcustom ergoemacs-command-loop-type :full
+(defcustom ergoemacs-command-loop-type nil
   "Type of `ergoemacs-mode' command loop."
   :type '(choice
           (const :tag "Replace emacs command loop (full)" :full)
@@ -1239,7 +1254,7 @@ also perform `outline-next-visible-heading'"
   :group 'ergoemacs-mode)
 
 
-;; (define-obsolete-face-alias 'ergoemacs-key-description-kbd 'ergoemacs-display-key-face "" "Ergoemacs-v5.16")
+;; (define-obsolete-face-alias 'ergoemacs-key-description-kbd 'ergoemacs-display-key-face "")
 
 ;;; Options not supported now
 

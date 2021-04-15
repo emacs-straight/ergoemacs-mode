@@ -1,6 +1,6 @@
 ;;; ergoemacs-map.el --- Ergoemacs map interface -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2018  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-map.el
 ;; Description:
@@ -35,7 +35,6 @@
 (require 'cl-lib)
 (eval-when-compile
   (require 'ergoemacs-macros))
-(require 'ergoemacs-component)
 
 (defvar cl-struct-ergoemacs-component-struct-tags)
 (defvar ergoemacs-breadcrumb-hash)
@@ -60,6 +59,8 @@
 (defvar ess-language)
 (defvar ergoemacs-mode--fast-p)
 (defvar ergoemacs-remap-ignore)
+(defvar ergoemacs-component-struct--composed-hook-minibuffer)
+(defvar term-raw-map)
 
 
 (declare-function ergoemacs-timing-- "ergoemacs-mode")
@@ -70,6 +71,14 @@
 
 (declare-function ergoemacs-command-loop--modal "ergoemacs-command-loop")
 (declare-function ergoemacs-command-loop--spinner-display "ergoemacs-command-loop")
+
+(declare-function ergoemacs-component-struct--create-hooks "ergoemacs-component")
+(declare-function ergoemacs-component-struct--get "ergoemacs-component")
+(declare-function ergoemacs-component-struct--lookup-hash "ergoemacs-component")
+(declare-function ergoemacs-component-struct--lookup-list "ergoemacs-component")
+(declare-function ergoemacs-component-struct--minor-mode-map-alist "ergoemacs-component")
+(declare-function ergoemacs-component-struct--rm-hooks "ergoemacs-component")
+(declare-function ergoemacs-component-struct--translated-list "ergoemacs-component")
 
 (declare-function ergoemacs-command-loop--minibuffer-supported-p "ergoemacs-command-loop")
 
@@ -232,12 +241,13 @@ save the infromationin the `ergoemacs-map--alist' hash."
   "Apply maps for ALISTS.
 
 SYMBOL is the symbol where this alist is located and is used to
-save the infromationin the `ergoemacs-map--alist' hash."
+save the information in the `ergoemacs-map--alist' hash."
   (let (old-len)
     ;; Only modify if the list has changed length.
     (if (and symbol
              (setq old-len (ergoemacs-gethash symbol ergoemacs-map--alist))
-             (= (length alists) old-len)) alists
+             (= (length alists) old-len))
+	alists
       (when symbol
         (puthash symbol (length alists) ergoemacs-map--alist)
         (setq ergoemacs-map--breadcrumb (format "%s:%s" ergoemacs-map--breadcrumb symbol)))
@@ -246,6 +256,7 @@ save the infromationin the `ergoemacs-map--alist' hash."
          (cond
           ((consp elt)
            (ergoemacs-map--alist (list elt)))
+	  ((not (boundp elt)))
           (t
            (set elt (ergoemacs-map--alist (symbol-value elt) elt))
            elt)))
@@ -945,91 +956,105 @@ If it is a tranisent map, assign the :dont-modify-p property to t."
   "Modifies Active maps.
 
 When INI is non-nil, add conditional maps to `minor-mode-map-alist'."
-  (let ((char-map (get-char-property-and-overlay (point) 'keymap))
-        (local-map (get-text-property (point) 'local-map))
-        (current-local-map (current-local-map))
-        tmp)
-    (when (and overriding-terminal-local-map
-               (not (eq overriding-terminal-local-map ergoemacs-map--modify-active-last-overriding-terminal-local-map))
-               (not (ergoemacs overriding-terminal-local-map :installed-p))
-	       (not (memq 'add-keymap-witness overriding-terminal-local-map)))
-      ;; (ergoemacs-map--temporary-map-properties overriding-terminal-local-map)
-      (setq overriding-terminal-local-map (ergoemacs overriding-terminal-local-map)))
-    
-    (when (and overriding-local-map
-               (not (eq overriding-local-map ergoemacs-map--modify-active-last-overriding-local-map))
-               (not (ergoemacs overriding-local-map :installed-p)))
-      ;; (ergoemacs-map--temporary-map-properties overriding-local-map)
-      (setq overriding-local-map (ergoemacs overriding-local-map)))
+  (when ergoemacs-mode
+    (let ((char-map (get-char-property-and-overlay (point) 'keymap))
+	  (local-map (get-text-property (point) 'local-map))
+	  (current-local-map (current-local-map))
+	  tmp)
+      (when (and overriding-terminal-local-map
+		 (not (eq overriding-terminal-local-map ergoemacs-map--modify-active-last-overriding-terminal-local-map))
+		 (not (ergoemacs overriding-terminal-local-map :installed-p))
+		 (not (memq 'add-keymap-witness overriding-terminal-local-map)))
+	;; (ergoemacs-map--temporary-map-properties overriding-terminal-local-map)
+	(setq overriding-terminal-local-map (ergoemacs overriding-terminal-local-map)))
+      
+      (when (and overriding-local-map
+		 (not (eq overriding-local-map ergoemacs-map--modify-active-last-overriding-local-map))
+		 (not (ergoemacs overriding-local-map :installed-p)))
+	;; (ergoemacs-map--temporary-map-properties overriding-local-map)
+	(setq overriding-local-map (ergoemacs overriding-local-map)))
 
-    (ergoemacs-save-buffer-state
-     (when (and char-map (symbolp char-map))
-       (setq char-map (ergoemacs-sv char-map)))
-     (when (and (listp char-map)
-		(car char-map)
-                (not (eq (car char-map) ergoemacs-map--modify-active-last-char-map))
-                (not (ergoemacs (car char-map) :installed-p)))
-       (cond
-        ((cdr char-map)
-         ;; Overlay
-         (overlay-put (cdr char-map) 'keymap (ergoemacs (car char-map))))
-        (t ;; Text Property
-         (put-text-property (previous-single-char-property-change (point) 'keymap)
-                            (next-single-char-property-change (point) 'keymap)
-                            'keymap
-                            (ergoemacs (car char-map))))))
-     (when (and local-map (symbolp local-map))
-       (setq local-map (ergoemacs-sv local-map)))
-     (when (and local-map
-                (not (eq local-map ergoemacs-map--modify-active-last-local-map))
-                (not (ergoemacs local-map :installed-p)))
-       (put-text-property (previous-single-char-property-change (point) 'local-map)
-                          (next-single-char-property-change (point) 'local-map)
-                          'local-map (ergoemacs local-map)))
-     ;; Save before any changes happen (ie in calc)
-     (when (and (not ergoemacs-map--saved-global-map)
-                (ergoemacs :ignore-global-changes-p))
-       (setq ergoemacs-map--saved-global-map (copy-keymap global-map)))
-     ;; Restore outside of modes that change the global map (calc)
-     (when (and ergoemacs-map--saved-global-map
-                (not (ergoemacs :ignore-global-changes-p)))
-       (setq global-map (copy-keymap ergoemacs-map--saved-global-map)
-             ergoemacs-map--saved-global-map nil)
-       (use-global-map global-map))
-     (when (and (setq tmp (current-global-map))
-                (ergoemacs-keymapp tmp)
-                (not (eq tmp global-map))
-                (or (not ergoemacs-map--last-global-map)
-                    (not (eq ergoemacs-map--last-global-map tmp)))
-                (not (ergoemacs tmp :installed-p)))
-       (use-global-map (ergoemacs tmp))
-       (setq ergoemacs-map--last-global-map (current-global-map)))
-     (when (and current-local-map (not (ergoemacs current-local-map :installed-p))
-                (not (minibufferp)))
-       (setq ergoemacs-map--breadcrumb (format "%s" major-mode))
-       (when (eq major-mode 'ess-mode)
-         (setq ergoemacs-map--breadcrumb (format "ess-mode-%s" ess-language)))
-       (use-local-map (ergoemacs current-local-map))
-       (setq ergoemacs-map--breadcrumb ""))
-     (when (and (minibufferp) ergoemacs-read-from-minibuffer-map)
-       (use-local-map (ergoemacs ergoemacs-read-from-minibuffer-map))
-       (setq ergoemacs-read-from-minibuffer-map nil
-             ergoemacs-map--breadcrumb ""))
-     ;; Run deferred "hooks"
-     (when (and (minibufferp) ergoemacs-component-struct--composed-hook-minibuffer)
-       (dolist (elt (reverse ergoemacs-component-struct--composed-hook-minibuffer))
-     	 (when (equal (ergoemacs (symbol-value elt) :map-key)
-     		      (ergoemacs ergoemacs-read-from-minibuffer-map :map-key))
-     	   (use-local-map (make-composed-keymap (cdr elt) (current-local-map))))
-     	 (set (make-local-variable (car elt)) (make-composed-keymap (cdr elt) (symbol-value (car elt)))))
-       (setq ergoemacs-component-struct--composed-hook-minibuffer nil)))
-    (setq ergoemacs-map--modify-active-last-overriding-terminal-local-map overriding-terminal-local-map
-          ergoemacs-map--modify-active-last-overriding-local-map overriding-local-map
-          ergoemacs-map--modify-active-last-char-map char-map
-          ergoemacs-map--modify-active-last-local-map local-map)
-    (ergoemacs-map--emulation-mode-map-alists)
-    (ergoemacs-map--minor-mode-map-alist ini)
-    (ergoemacs-map--minor-mode-overriding-map-alist)))
+      (ergoemacs-save-buffer-state
+       (when (and char-map (symbolp char-map))
+	 (setq char-map (ergoemacs-sv char-map)))
+       (when (and (listp char-map)
+		  (car char-map)
+		  (not (eq (car char-map) ergoemacs-map--modify-active-last-char-map))
+		  (not (ergoemacs (car char-map) :installed-p)))
+	 (cond
+	  ((cdr char-map)
+	   ;; Overlay
+	   (overlay-put (cdr char-map) 'keymap (ergoemacs (car char-map))))
+	  (t ;; Text Property
+	   (put-text-property (previous-single-char-property-change (point) 'keymap)
+			      (next-single-char-property-change (point) 'keymap)
+			      'keymap
+			      (ergoemacs (car char-map))))))
+       (when (and local-map (symbolp local-map))
+	 (setq local-map (ergoemacs-sv local-map)))
+       (when (and local-map
+		  (not (eq local-map ergoemacs-map--modify-active-last-local-map))
+		  (not (ergoemacs local-map :installed-p)))
+	 (put-text-property (previous-single-char-property-change (point) 'local-map)
+			    (next-single-char-property-change (point) 'local-map)
+			    'local-map (ergoemacs local-map)))
+       ;; Save before any changes happen (ie in calc)
+       (when (and (not ergoemacs-map--saved-global-map)
+		  (ergoemacs :ignore-global-changes-p))
+	 (setq ergoemacs-map--saved-global-map (copy-keymap global-map)))
+       ;; Restore outside of modes that change the global map (calc)
+       (when (and ergoemacs-map--saved-global-map
+		  (not (ergoemacs :ignore-global-changes-p)))
+	 (setq global-map (copy-keymap ergoemacs-map--saved-global-map)
+	       ergoemacs-map--saved-global-map nil)
+	 (use-global-map global-map))
+       (when (and (setq tmp (current-global-map))
+		  (ergoemacs-keymapp tmp)
+		  (not (eq tmp global-map))
+		  (or (not ergoemacs-map--last-global-map)
+		      (not (eq ergoemacs-map--last-global-map tmp)))
+		  (not (ergoemacs tmp :installed-p)))
+	 (use-global-map (ergoemacs tmp))
+	 (setq ergoemacs-map--last-global-map (current-global-map)))
+       (when (and current-local-map (not (ergoemacs current-local-map :installed-p))
+		  (not (minibufferp)))
+	 (setq ergoemacs-map--breadcrumb (format "%s" major-mode))
+	 (when (eq major-mode 'ess-mode)
+	   (setq ergoemacs-map--breadcrumb (format "ess-mode-%s" ess-language)))
+         ;; term-mode has a term-raw-map that it checks against
+         ;; current-local-map to see if it is in line-mode or
+         ;; char-mode.  So we have to modify both term-raw-map and
+         ;; current-local-map to be able to switch.
+         (if (not (eq major-mode 'term-mode))
+	     (use-local-map (ergoemacs current-local-map))
+           (progn
+             (use-local-map (ergoemacs term-raw-map))))
+	 (setq ergoemacs-map--breadcrumb ""))
+       (when (and (minibufferp) ergoemacs-read-from-minibuffer-map)
+         ;; Preserve bindings for space, such as when completing a filename
+         (if (and (equal (key-binding " ") 'self-insert-command))
+             (use-local-map (list 'keymap
+                                  '(32 . self-insert-command) ;; space==32
+                                  (ergoemacs ergoemacs-read-from-minibuffer-map)))
+           (use-local-map (ergoemacs ergoemacs-read-from-minibuffer-map)))
+	 (setq ergoemacs-read-from-minibuffer-map nil
+	       ergoemacs-map--breadcrumb ""))
+       ;; Run deferred "hooks"
+       (when (and (minibufferp) ergoemacs-component-struct--composed-hook-minibuffer)
+	 (dolist (elt (reverse ergoemacs-component-struct--composed-hook-minibuffer))
+	   (when (equal (ergoemacs (symbol-value elt) :map-key)
+			(ergoemacs ergoemacs-read-from-minibuffer-map :map-key))
+	     (use-local-map (make-composed-keymap (cdr elt) (current-local-map))))
+	   (ergoemacs-save-buffer-state
+	    (set (make-local-variable (car elt)) (make-composed-keymap (cdr elt) (symbol-value (car elt))))))
+	 (setq ergoemacs-component-struct--composed-hook-minibuffer nil)))
+      (setq ergoemacs-map--modify-active-last-overriding-terminal-local-map overriding-terminal-local-map
+	    ergoemacs-map--modify-active-last-overriding-local-map overriding-local-map
+	    ergoemacs-map--modify-active-last-char-map char-map
+	    ergoemacs-map--modify-active-last-local-map local-map)
+      (ergoemacs-map--emulation-mode-map-alists)
+      (ergoemacs-map--minor-mode-map-alist ini)
+      (ergoemacs-map--minor-mode-overriding-map-alist))))
 
 
 (defvar ergoemacs-map--quit-map nil

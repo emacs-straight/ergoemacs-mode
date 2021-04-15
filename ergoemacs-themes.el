@@ -1,6 +1,6 @@
 ;;; ergoemacs-themes.el --- ErgoEmacs keybindings and themes -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2018 Free Software Foundation, Inc.
+;; Copyright © 2013-2021 Free Software Foundation, Inc.
 
 ;; Maintainer: Matthew L. Fidler
 ;; Authors: Matthew L. Fidler, Xah Lee, Drew Adams
@@ -28,10 +28,9 @@
 ;; 
 
 ;;; Code:
-(eval-when-compile
+(eval-when-compile 
   (require 'cl-lib)
   (require 'ergoemacs-macros))
-(require 'ergoemacs-component)
 
 (declare-function ergoemacs-theme-component--create-component "ergoemacs-theme")
 (declare-function ergoemacs-component-struct--create-component "ergoemacs-component")
@@ -49,12 +48,12 @@
 
 (require 'advice)
 
-(ergoemacs-package undo-tree
-    :ensure t
-    (global-undo-tree-mode 1))
+;; (ergoemacs-package undo-tree
+;;     :ensure t
+;;     (global-undo-tree-mode 1))
 
-(ergoemacs-package persistent-soft
-    :ensure t)
+;; (ergoemacs-package persistent-soft
+;;     :ensure t)
 
 (ergoemacs-component standard-vars ()
   "Enabled/changed variables/modes"
@@ -243,8 +242,12 @@
   (define-key undo-tree-map (kbd "M-_") nil)
   
   (global-set-key (kbd "C-S-z") '(redo undo-tree-redo ergoemacs-redo))
+  (global-set-key (kbd "M-S-z") '(redo undo-tree-redo ergoemacs-redo))
   (global-set-key (kbd "<S-delete>") 'ergoemacs-cut-line-or-region)
-  (global-set-key (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (global-set-key (kbd "C-c <ergoemacs-timeout>")
+                      'ergoemacs-copy-line-or-region)
+    )
   (global-set-key (kbd "<C-insert>") 'ergoemacs-copy-line-or-region)
   (global-set-key (kbd "C-S-v") 'ergoemacs-paste-cycle)
   
@@ -325,7 +328,9 @@
 
   (global-set-key (kbd "C-x k") nil)
   (global-set-key (kbd "C-w") 'ergoemacs-close-current-buffer)
-  (global-set-key (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (global-set-key (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
+    )
   (global-set-key (kbd "C-x C-b") 'ibuffer)
   (global-set-key (kbd "C-y") '(redo undo-tree-redo ergoemacs-redo) "↷ redo")
   
@@ -338,6 +343,7 @@
   (define-key org-mode-map (kbd "<M-up>") 'ergoemacs-org-metaup)
   (define-key org-mode-map (kbd "<M-left>") 'ergoemacs-org-metaleft)
   (define-key org-mode-map (kbd "<M-right>") 'ergoemacs-org-metaright)
+  (define-key org-mode-map (kbd "<M-RET>") 'org-insert-item)
   (define-key org-mode-map (kbd "M-v") 'ergoemacs-org-yank)
   (define-key org-mode-map (kbd "C-v") 'ergoemacs-org-yank)
 
@@ -366,7 +372,9 @@
   (define-key isearch-mode-map (kbd "C-M-f") 'isearch-occur)
   (define-key isearch-mode-map (kbd "<S-insert>") 'ergoemacs-paste)
   (define-key isearch-mode-map (kbd "C-S-v") 'ergoemacs-paste-cycle)
-  (define-key isearch-mode-map (kbd "C-c") 'isearch-yank-word-or-char)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (define-key isearch-mode-map (kbd "C-c") 'isearch-yank-word-or-char)
+    )
   (define-key isearch-mode-map (kbd "M-c") 'isearch-yank-word-or-char)
   (define-key isearch-mode-map (kbd "M-v") 'ergoemacs-paste)
   (define-key isearch-mode-map (kbd "C-v") 'ergoemacs-paste))
@@ -686,14 +694,21 @@
   (global-set-key (kbd "M-z") '("C-_" :emacs))
   
   ;; Fixed Component; Note that <timeout> is the actual function.
-  (global-set-key (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
-  (global-set-key (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (progn
+        (global-set-key (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
+        (global-set-key (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
+        )
+    )
+  (global-set-key (kbd "C-S-x") ("C-x" :normal))
   (global-set-key (kbd "C-z") 'undo)
   (global-set-key (kbd "C-S-z") '(redo undo-tree-redo ergoemacs-redo))
   (global-set-key (kbd "C-y") '(redo undo-tree-redo ergoemacs-redo))
 
   ;; Mode specific changes
-  (define-key isearch-mode-map (kbd "C-c") 'isearch-yank-word-or-char)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (define-key isearch-mode-map (kbd "C-c") 'isearch-yank-word-or-char)
+    )
   (define-key isearch-mode-map (kbd "M-c") 'isearch-yank-word-or-char)
   (define-key isearch-mode-map (kbd "M-v") 'ergoemacs-paste)
   (define-key isearch-mode-map (kbd "M-V") 'ergoemacs-paste-cycle)
@@ -705,6 +720,7 @@
   (define-key browse-kill-ring-mode-map [remap undo] 'browse-kill-ring-undo-other-window)
   (define-key browse-kill-ring-mode-map [remap undo-tree-undo] 'browse-kill-ring-undo-other-window)
   (define-key browse-kill-ring-mode-map [remap undo-tree-undo] 'browse-kill-ring-undo-other-window)
+  (define-key calc-mode-map [remap ergoemacs-paste] 'calc-yank)
   (define-key calc-mode-map [remap undo-tree-undo] 'calc-undo))
 
 (ergoemacs-component search ()
@@ -827,9 +843,7 @@
   (define-key isearch-mode-map (kbd "<escape>") 'isearch-abort)
 
   (when org-read-date-minibuffer-setup-hook
-    (define-key minibuffer-local-map (kbd "<escape>") 'minibuffer-keyboard-quit))
-  :version 5.3.7
-  (global-set-key (kbd "M-n") 'keyboard-quit))
+    (define-key minibuffer-local-map (kbd "<escape>") 'minibuffer-keyboard-quit)))
 
 (ergoemacs-component apps ()
   "General Apps Key Sequence"
@@ -1029,7 +1043,7 @@
 (ergoemacs-component helm-remaps ()
   "Remaps for helm-mode"
   (when helm-mode
-    (global-set-key [remap grep] 'helm-do-grep)
+    ;; (global-set-key [remap grep] 'helm-do-grep)  ;; Removed grep https://github.com/emacs-helm/helm/issues/1377
     (global-set-key [remap execute-extended-command] 'helm-M-x)
     (global-set-key [remap switch-to-buffer] 'helm-mini)
     (global-set-key [remap find-file] 'helm-find-files)
@@ -1087,8 +1101,6 @@
     (global-set-key [remap ido-magic-forward-char] 'ido-next-match)
     (global-set-key [remap ido-magic-backward-char] 'ido-prev-match)))
 
-
-
 (ergoemacs-component ergoemacs-remaps ()
   "Remaps for ergoemacs-mode"
   (when undo-tree-mode
@@ -1110,6 +1122,32 @@
                     'ergoemacs-describe-major-mode)
     (global-set-key [remap ergoemacs-print-buffer-confirm]
                     'pr-interface)))
+
+(ergoemacs-component swiper ()
+  "Swiper component"
+  (when ivy-mode
+    (setq ivy-use-virtual-buffers t)
+    (global-set-key [remap isearch-forward] 'swiper)
+    ;; (global-set-key (kbd "C-c C-r") 'ivy-resume)
+    ;; (global-set-key (kbd "<f6>") 'ivy-resume)
+    (global-set-key [remap execute-extended-command] 'counsel-M-x)
+    (global-set-key [remap find-file] 'counsel-find-file)
+    (global-set-key [remap describe-function] 'counsel-describe-function)
+    (global-set-key [remap describe-variable] 'counsel-describe-variable)
+    (global-set-key [remap find-library] 'counsel-find-library)
+    (global-set-key [remap info-lookup-symbol] 'counsel-info-lookup-symbol)
+    ;; (global-set-key (kbd "<f2> u") 'counsel-unicode-char)
+    ;; (global-set-key (kbd "C-c g") 'counsel-git)
+    (global-set-key [remap vc-git-grep] 'counsel-git-grep)
+    ;; (global-set-key (kbd "C-c k") 'counsel-ag)
+    (global-set-key [remap locate] 'counsel-locate)
+    ;; (global-set-key (kbd "C-S-o") 'counsel-rhythmbox)
+    ;; (define-key read-expression-map (kbd "C-r") 'counsel-expression-history)
+    (define-key ivy-minibuffer-map (kbd "M-RET") 'ivy-alt-done)
+    ;; (define-key ivy-minibuffer-map (kbd "C-RET") 'ivy-dispatching-done)
+    ;; (define-key ivy-minibuffer-map (kbd "M-S-RET") 'ivy-immediate-done)
+    ;; (define-key ivy-minibuffer-map [remap avy-goto-word-or-subword-1] 'ivy-avy)
+    ))
 
 (ergoemacs-component ergoemacs-banish-shift ()
   "Banish Shift Combinations with <apps> SPC"
@@ -1826,17 +1864,6 @@
                                        (man-dir menu-item "Unix Man Pages..."
                                                 woman
                                                 :help "Unix Manual entries (with WoMan)")))
-                          (separator-2 menu-item "--")
-
-                          (eroemacs-current-keybindings menu-item
-                                                        "Current Ergoemacs Keybindings"
-                                                        ergoemacs-describe-current-theme)
-                          
-                          (ergoemacs-mode-web-page menu-item
-                                                   "Ergoemacs-mode web-page"
-                                                   (lambda() (interactive)
-                                                     (browse-url ergoemacs-mode-web-page-url))
-                                                   :help "Online help about ergoemacs.")
                           
                           (separator-3 menu-item "--")
                           (send-bug-report menu-item "Send Emacs Bug Report"
@@ -1855,7 +1882,12 @@
 
 (ergoemacs-theme lvl0 ()
   "CUA-mode style"
-  (global-set-key (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
+  (if (not (eq ergoemacs-handle-ctl-c-or-ctl-x 'only-C-c-and-C-x))
+      (progn
+        (global-set-key (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
+        (global-set-key (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
+        )
+    )
   (global-set-key (kbd "<C-insert>") 'ergoemacs-copy-line-or-region)
   (global-set-key (kbd "C-S-v") 'ergoemacs-paste-cycle)
   
@@ -1978,11 +2010,12 @@
                   ido-prev-next-instead-of-left-right
                   join-line
 		  save-options-on-exit
-                  isearch-arrows)
+                  isearch-arrows
+		  ergoemacs-swiper)
   :options-menu '(("Menu/Apps Key" (apps apps-apps apps-punctuation apps-toggle))
                   ("Function Keys" (fn-keys f2-edit))
                   ("Helm Options" (helm-switch-sources helm-find-files))
-                  ("Remaps" (ido-remaps helm-remaps multiple-cursors-remaps icy-reclaim))
+                  ("Remaps" (ido-remaps helm-remaps multiple-cursors-remaps icy-reclaim ergoemacs-swiper))
                   ("Extreme ErgoEmacs" (guru no-backspace ergoemacs-banish-shift))
                   ("Standard Keys" (standard-fixed fixed-bold-italic quit move-and-transpose-lines alt-backspace-is-undo))
                   ("Keys during Key Sequence" (f2-edit apps-swap backspace-del-seq))

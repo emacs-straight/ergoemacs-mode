@@ -1,6 +1,6 @@
 ;;; ergoemacs-theme-engine.el --- Ergoemacs map interface -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2018  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-theme-engine.el
 ;; Description:
@@ -53,7 +53,6 @@
 (eval-when-compile
   (require 'ergoemacs-macros)
   (require 'cl-lib))
-(require 'find-func)
 
 (defvar ergoemacs-mode)
 (defvar ergoemacs-require)
@@ -136,7 +135,7 @@ This respects `ergoemacs-theme-options'."
 
 ;;;###autoload
 (defun ergoemacs-theme-set-version (version)
-  "Set the current themes default VERSION."
+  "Sets the current themes default VERSION."
   (let (found)
     (setq ergoemacs-theme-version
           (mapcar
@@ -422,9 +421,7 @@ When AT-END is non-nil, append a $ to the regular expression."
     (ergoemacs-sep-menu "--")
     (ergoemacs-cheat
      menu-item "Generate/Open Key binding Cheat Sheet"
-     (lambda()
-       (interactive)
-       (call-interactively 'ergoemacs-display-current-theme)))
+     ergoemacs-describe-current-theme)
 
     (ergoemacs-save
      menu-item "Save Settings for Future Sessions"
@@ -443,6 +440,10 @@ When AT-END is non-nil, append a $ to the regular expression."
      (lambda ()
        (interactive)
        (customize-group 'ergoemacs-mode)))
+    (ergoemacs-mode-web-page
+     menu-item "Ergoemacs-mode web-page"
+     (lambda() (interactive)
+       (browse-url ergoemacs-mode-web-page-url)))
     (ergoemacs-mode-exit
      menu-item "Exit ergoemacs-mode"
      (lambda() (interactive) (ergoemacs-mode -1)))))
@@ -630,21 +631,19 @@ See also `find-function-recenter-line' and `find-function-after-hook'."
               (ergoemacs-mode-reset)))
           (buffer-string))))))
 
-(defalias 'describe-ergoemacs-theme 'ergoemacs-theme-describe)
-
 (defvar ergoemacs-theme-create-bash-functions
   '((backward-char)
     (forward-char)
-    (previous-history)
-    (next-history)
-    (beginning-of-line ergoemacs-beginning-of-line-or-what)
-    (end-of-line ergoemacs-end-of-line-or-what)
-    (backward-word subward-backward backward-sexp)
-    (forward-word subword-forward forward-sexp)
-    (kill-line ergoemacs-cut-line-or-region)
+    (previous-history previous-line)
+    (next-history next-line)
+    (beginning-of-line move-beginning-of-line)
+    (end-of-line move-end-of-line)
+    (backward-word)
+    (forward-word)
+    (kill-line)
     (backward-kill-word)
     (kill-word)
-    (backward-delete-char)
+    (backward-delete-char backward-delete-char-untabify)
     (delete-char)
     (undo undo-tree-undo)
     (kill-region ergoemacs-cut-line-or-region)
@@ -663,14 +662,29 @@ See also `find-function-recenter-line' and `find-function-after-hook'."
 # place this file in your home dir. e.g. ~/.inputrc
 # restart your terminal. Then, bash's keybinding for editing
 # should be like ErgoEmacs.
-# If no key works, try replace all \\e to \\M-. That's means change Esc to Meta key.
-\nset editing-mode emacs") tmp)
+# If none of the keys work, try replacing all instances of \\e with \\M-.
+# That's means changing Esc to Meta key.
+\nset editing-mode emacs") key-string)
     (with-temp-buffer
       (dolist (cmds ergoemacs-theme-create-bash-functions)
         (dolist (cmd cmds)
-          (when (setq tmp (where-is-internal cmd nil t))
-            (setq ret (concat ret "\n\"\\" (key-description tmp) "\": "
-                              (symbol-name (nth 0 cmds)))))) t))
+          (dolist (key-cmd (where-is-internal cmd nil))
+            (setq key-string (key-description key-cmd))
+            ;; Only set up the Meta bindings, not the regular arrow or
+            ;; Control bindings.  That would require more complicated
+            ;; logic to get right.
+            (if (string-prefix-p "M-" key-string)
+                (setq ret (concat ret "\n\"\\"
+                                  (replace-regexp-in-string "M-" "e" key-string t)
+                                  "\": "
+                                  (symbol-name (nth 0 cmds))
+                                  )
+                      )
+              )
+            )
+          )
+        t)
+      )
     (with-temp-file "~/.inputrc"
       (insert ret)
       (insert "\n"))
@@ -914,7 +928,7 @@ See also `find-function-recenter-line' and `find-function-after-hook'."
     (let* ((lay (or layout ergoemacs-keyboard-layout))
            (theme (or theme ergoemacs-theme))
            (layout (symbol-value (ergoemacs :layout  lay)))
-           (file-dir (expand-file-name "bindings" (expand-file-name "eurgoemacs-extras" user-emacs-directory)))
+           (file-dir (expand-file-name "bindings" (expand-file-name "ergoemacs-extras" user-emacs-directory)))
            (file-name (expand-file-name (concat theme "-" lay "-" (symbol-name (ergoemacs-map--hashkey ergoemacs--start-emacs-state-2)) ".svg") file-dir))
            (reread reread)
            (old-theme ergoemacs-theme)

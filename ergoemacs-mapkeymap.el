@@ -1,6 +1,6 @@
 ;;; ergoemacs-mapkeymap.el --- Ergoemacs map interface -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2015  Free Software Foundation, Inc.
+;; Copyright © 2013-2021  Free Software Foundation, Inc.
 
 ;; Filename: ergoemacs-mapkeymap.el
 ;; Description:
@@ -84,6 +84,7 @@ If `ergoemacs-mode' cant determine the value, return nil."
                           (and (fboundp keymap) (setq tmp (symbol-function keymap))
                                (ergoemacs-keymapp tmp) tmp))))))))
 
+(defvar ergoemacs-map-keymap--map-submap-last-map nil)
 (defun ergoemacs-map-keymap--map-submap (sub-keymap function &optional original prefix flat-keymap nil-keys)
   "Expose SUB-KEYMAP, then apply `ergoemacs-map-keymap'.
 
@@ -95,15 +96,17 @@ FLAT-KEYMAP and NIL-KEYS arguments.  It is missing the keymap
 argument, since it is calculated from the exposed sub-keymap."
   (let ((tmp (ergoemacs-map-keymap--expose-keymap sub-keymap)))
     (when tmp
-      (ergoemacs-map-keymap function
-                            (cond
-                             ((eq original :setcdr)
-                              (ergoemacs-setcdr (cdr tmp)
-                                                (cdr (ergoemacs :original tmp))))
-                             (original
-                              (ergoemacs :original tmp))
-                             (t tmp))
-                            original prefix flat-keymap nil-keys))))
+      (unless (eq ergoemacs-map-keymap--map-submap-last-map tmp)
+	(setq ergoemacs-map-keymap--map-submap-last-map tmp)
+	(ergoemacs-map-keymap function
+                              (cond
+                               ((eq original :setcdr)
+                                (ergoemacs-setcdr (cdr tmp)
+                                                  (cdr (ergoemacs :original tmp))))
+                               (original
+                                (ergoemacs :original tmp))
+                               (t tmp))
+                              original prefix flat-keymap nil-keys)))))
 
 (defun ergoemacs-map-keymap (function keymap &optional original prefix flat-keymap nil-keys)
   "Call FUNCTION for all keys in hash table KEYMAP.
@@ -136,6 +139,8 @@ them to be masked when mapping over the keymap."
         calc-parent-p
         prefix-map
         tmp)
+    (when (not prefix)
+      (setq ergoemacs-map-keymap--map-submap-last-map nil))
     (when (ergoemacs-keymapp keymap)
       (map-keymap
        (lambda(event item)
@@ -189,7 +194,9 @@ them to be masked when mapping over the keymap."
              (cond
               ((consp event)
                (ergoemacs-map-set-char-table-range
-                (or (and prefix (lookup-key flat-keymap prefix))
+                (or (and prefix
+                         (let ((prefix-lookup (lookup-key flat-keymap prefix)))
+                           (if (listp prefix-lookup) prefix-lookup)))
                     flat-keymap) event item))
               (t
                (define-key flat-keymap key item)

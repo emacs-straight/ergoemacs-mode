@@ -1,6 +1,6 @@
 ;;; ergoemacs-functions.el --- miscellaneous functions for ErgoEmacs -*- lexical-binding: t -*-
 
-;; Copyright © 2013-2018 Free Software Foundation, Inc.
+;; Copyright © 2013-2021 Free Software Foundation, Inc.
 
 ;; Maintainer: Matthew L. Fidler
 ;; Authors: Xah Lee, Matthew Fidler, Drew Adams, Ting-Yu Lin, David
@@ -61,14 +61,15 @@
 (declare-function cua-cut-region "cua-base")
 (declare-function cua-paste "cua-base")
 (declare-function cua-set-rectangle-mark "cua-rect")
-(declare-function describe-ergoemacs-theme "ergoemacs-theme-engine")
 (declare-function dired-get-marked-files "dired")
 
 (declare-function ergoemacs-map-- "ergoemacs-map")
 (declare-function ergoemacs-mode "ergoemacs-mode")
+(declare-function ergoemacs-map-properties--original "ergoemacs-map-properties")
 
 (declare-function ergoemacs-command-loop--modal-pop "ergoemacs-command-loop")
 (declare-function ergoemacs-theme-describe "ergoemacs-theme-engine")
+(declare-function ergoemacs-key-description "ergoemacs-key-description")
 
 (declare-function helm-attrset "helm")
 (declare-function helm-basename "helm-utils")
@@ -249,7 +250,8 @@ When TERMINAL is non-nil, run in a terminal instead of GUI."
       (kill-buffer buf)))
   (switch-to-buffer-other-window (get-buffer-create "*ergoemacs-clean*"))
   (let ((inhibit-read-only t))
-    (set (make-local-variable 'ergoemacs-terminal) terminal)
+    (ergoemacs-save-buffer-state
+     (set (make-local-variable 'ergoemacs-terminal) terminal))
     (setq default-directory (expand-file-name (file-name-directory (locate-library "ergoemacs-mode"))))
     (delete-region (point-min) (point-max))
     (when (or (equal current-prefix-arg '(4))
@@ -296,8 +298,9 @@ The PROCESS is the process where the clean environment is run."
                         emacs-exe
                         (expand-file-name (file-name-directory (locate-library "ergoemacs-mode")))
                         ergoemacs-load))
-      (set (make-local-variable 'ergoemacs-batch-file)
-           (make-temp-file "ergoemacs-clean" nil ".bat"))
+      (ergoemacs-save-buffer-state
+       (set (make-local-variable 'ergoemacs-batch-file)
+	    (make-temp-file "ergoemacs-clean" nil ".bat")))
       (with-temp-file ergoemacs-batch-file
         (insert cmd))
       (setq default-directory (file-name-directory ergoemacs-batch-file)))
@@ -356,12 +359,12 @@ If TERMINAL is non-nil, run the terminal version"
 
 (defun ergoemacs-emacs-exe ()
   "Get the Emacs executable for testing purposes."
+  ;; FIXME: The quotes can't be quite right; better use something like
+  ;; `shell-quote-argument'.
   (let* ((emacs-exe (if (fboundp 'invocation-name) (invocation-name)
                       (if (boundp 'invocation-name) invocation-name)))
          (emacs-dir (if (fboundp 'invocation-directory) (invocation-directory)
                       (if (boundp 'invocation-directory) invocation-directory)))
-         ;; FIXME: The quotes can't be quite right; better use something like
-         ;; `shell-quote-argument'.
          (full-exe (concat "\"" (expand-file-name emacs-exe emacs-dir)
                            "\"")))
     full-exe))
@@ -406,6 +409,11 @@ If `narrow-to-region' is in effect, then cut that region only."
   :type 'boolean
   :group 'ergoemacs-mode)
 
+(defun ergoemacs--keep-mark-active ()
+  (when (mark t)
+    (setq mark-active t
+          deactivate-mark nil)))
+
 (defun ergoemacs-copy-line-or-region (&optional arg)
   "Copy current line, or current text selection.
 Pass prefix ARG to the respective copy functions."
@@ -436,7 +444,8 @@ Pass prefix ARG to the respective copy functions."
            (call-interactively 'move-end-of-line)))
        (re-search-forward "\\=\n" nil t) ;; Include newline
        (point)))))
-  (unless ergoemacs-keep-region-after-copy
+  (if ergoemacs-keep-region-after-copy
+      (ergoemacs--keep-mark-active)
     (deactivate-mark)))
 
 (defun ergoemacs-cut-line-or-region (&optional arg)
@@ -1315,7 +1324,7 @@ Based on the value of `major-mode' and
   "Convert under_score string S to CamelCase string."
   (mapconcat 'identity (ergoemacs-mapcar-head
                         #'downcase
-                        (lambda (word) (capitalize (downcase word)))
+                        '(lambda (word) (capitalize (downcase word)))
                         (split-string s (or char "_"))) ""))
 
 (defun ergoemacs-camel-bounds (camel-case-chars)
@@ -1585,10 +1594,8 @@ by `ergoemacs-maximum-number-of-files-to-open'.
                     (y-or-n-p (format "Open more than %s files? " ergoemacs-maximum-number-of-file-to-open)))))
     (when do-it
       (cond
-       ((fboundp 'w32-shell-execute)
-        (dolist (f-path my-file-list)
-          (w32-shell-execute
-           "open" (replace-regexp-in-string "/" "\\" f-path t t))))
+       ((eq system-type 'windows-nt)
+        (ergoemacs :w32-shell-open-files my-file-list))
        ((eq system-type 'darwin)
         (dolist (f-path my-file-list)
           (shell-command (format "open \"%s\"" f-path))))
@@ -1601,15 +1608,17 @@ by `ergoemacs-maximum-number-of-files-to-open'.
   "Show current file in desktop (OS's file manager)."
   (interactive)
   (cond
-   ((fboundp 'w32-shell-execute)
-    (w32-shell-execute "explore" (replace-regexp-in-string "/" "\\" default-directory t t)))
+   ((eq system-type 'windows-nt)
+    (ergoemacs :w32-shell-execute "explore" (replace-regexp-in-string "/" "\\" default-directory t t)))
    ((eq system-type 'darwin) (shell-command "open ."))
    ((eq system-type 'gnu/linux)
     (let ((process-connection-type nil))
       (start-process "" nil "xdg-open" ".")))))
 
 ;; FIXME: Why default to (cons nil nil) instead of just nil?
-(defvar ergoemacs-recently-closed-buffers (cons nil nil) "A list of recently closed buffers. The max number to track is controlled by the variable `ergoemacs-recently-closed-buffers-max'.")
+(defvar ergoemacs-recently-closed-buffers (cons nil nil)
+  "A list of recently closed buffers. The max number to track is controlled by the variable `ergoemacs-recently-closed-buffers-max'.")
+
 (defvar ergoemacs-recently-closed-buffers-max 30 "The maximum length for `ergoemacs-recently-closed-buffers'.")
 
 ;; note: emacs won't offer to save a buffer that's
@@ -1792,8 +1801,8 @@ true; otherwise it is an emacs buffer."
 
 ;;; helm-mode functions
 
-;; This comes from https://github.com/emacs-helm/helm/pull/327, but
-;; was reverted so it is added back here.
+;;; This comes from https://github.com/emacs-helm/helm/pull/327, but
+;;; was reverted so it is added back here.
 (defcustom ergoemacs-helm-ff-ido-style-backspace t
   "Use backspace to navigate with `helm-find-files'.
 You will have to restart Emacs or reeval `helm-find-files-map'
@@ -1832,9 +1841,10 @@ level, like in `ido-find-file'. "
   "Allows return to expand a directory like in `ido-find-file'.
 This requires `ergoemacs-mode' to be non-nil and
 `ergoemacs-helm-ido-style-return' to be non-nil."
-  (let* ((follow (buffer-local-value
-                  'helm-follow-mode
-                  (get-buffer-create helm-buffer)))
+  (let* ((follow (and (boundp 'helm-follow-mode)
+		      (buffer-local-value
+		       'helm-follow-mode
+		       (get-buffer-create helm-buffer))))
          (insert-in-minibuffer
           #'(lambda (fname)
               (with-selected-window (minibuffer-window)
@@ -2339,12 +2349,6 @@ If arg is a negative prefix, copy file path only"
   :type 'string
   :group 'ergoemacs-mode)
 
-(defun ergoemacs-display-current-theme ()
-  "Generates the current ergoemacs layout, unless it already
-exists and opens it in emacs, if possible."
-  (interactive)
-  (describe-ergoemacs-theme ergoemacs-theme))
-
 ;;; Unaccent region taken and modified from Drew Adam's unaccent.el
 
 (require 'strings nil t) ;; (no error if not found): region-description
@@ -2424,18 +2428,14 @@ Guillemet -> quote, degree -> @, s-zed -> ss, upside-down ?! -> ?!."
 
 ;; Shell handling
 
-(defun ergoemacs--default-dir-name ()
-  (let ((afn (abbreviate-file-name default-directory)))
-    (if (fboundp 'w32-long-file-name)
-        (w32-long-file-name afn) ;; Fix case issues
-      afn)))
-
 (defun ergoemacs-shell-here-directory-change-hook ()
   "Renames buffer to reflect directory name."
   (let ((nbn (concat (cond
                       ((derived-mode-p 'eshell-mode) "*eshell@")
                       (t (replace-regexp-in-string "\\([*][^@]*[@]\\).*" "\\1" (buffer-name) t)))
-                     (ergoemacs--default-dir-name) "*")))
+                     (if (eq system-type 'windows-nt)
+                         (ergoemacs :w32-long-file-name (abbreviate-file-name default-directory)) ;; Fix case issues
+                       (abbreviate-file-name default-directory)) "*")))
     (unless (string= nbn (buffer-name))
       (setq nbn (generate-new-buffer-name nbn))
       (rename-buffer nbn))))
@@ -2452,15 +2452,18 @@ Sends shell prompt string to process, then turns on
       (require 'dirtrack)
       (cond
        ((string-match "cmd\\(proxy\\)?.exe" shell)
-        (set (make-local-variable 'dirtrack-list) (list "^\\([a-zA-Z]:.*\\)>" 1))
+        (ergoemacs-save-buffer-state
+	 (set (make-local-variable 'dirtrack-list) (list "^\\([a-zA-Z]:.*\\)>" 1)))
         (shell-dirtrack-mode -1)
         (dirtrack-mode 1))
        ((string-match "powershell.exe" shell)
-        (set (make-local-variable 'dirtrack-list) (list "^PS \\([a-zA-Z]:.*\\)>" 1))
+        (ergoemacs-save-buffer-state
+	 (set (make-local-variable 'dirtrack-list) (list "^PS \\([a-zA-Z]:.*\\)>" 1)))
         (shell-dirtrack-mode -1)
         (dirtrack-mode 1))
        (t ;; Assume basic abc@host:dir structure
-        (set (make-local-variable 'dirtrack-list) (list "^\\(?:.*?@\\)?\\(?:.*?:\\)?\\(?:[^ ]* \\)? *\\(.*\\) *\\([$#]\\|\\]\\)" 1))
+        (ergoemacs-save-buffer-state
+	 (set (make-local-variable 'dirtrack-list) (list "^\\(?:.*?@\\)?\\(?:.*?:\\)?\\(?:[^ ]* \\)? *\\(.*\\) *\\([$#]\\|\\]\\)" 1)))
         (shell-dirtrack-mode -1)
         (dirtrack-mode 1))))))
 
@@ -2471,7 +2474,9 @@ Sends shell prompt string to process, then turns on
   (interactive)
   (let* ((shell (or shell-program 'shell))
          (buf-prefix (or buffer-prefix (symbol-name shell)))
-         (name (concat "*" buf-prefix "@" (ergoemacs--default-dir-name) "*")))
+         (name (concat "*" buf-prefix "@" (if (eq system-type 'windows-nt)
+                                              (ergoemacs :w32-long-file-name (abbreviate-file-name default-directory)) ;; Fix case issues
+                                            (abbreviate-file-name default-directory)) "*")))
     (set-buffer (get-buffer-create name))
     (funcall shell name)))
 
@@ -2493,7 +2498,9 @@ Sends shell prompt string to process, then turns on
   "Run/switch to an `eshell' process in the current directory"
   (interactive)
   (let* ((eshell-buffer-name
-          (concat "*eshell@" (ergoemacs--default-dir-name) "*"))
+          (concat "*eshell@" (if (eq system-type 'windows-nt)
+                                 (ergoemacs :w32-long-file-name (abbreviate-file-name default-directory)) ;; Fix case issues
+                               (abbreviate-file-name default-directory)) "*"))
          (eshell-exists-p (get-buffer eshell-buffer-name)))
     (if eshell-exists-p
         (switch-to-buffer eshell-exists-p)
@@ -2728,6 +2735,27 @@ With a prefix argument like \\[universial-argument] in an
 ;; Ergoemacs Test suite
 (unless (fboundp 'ergoemacs-test)
   (autoload 'ergoemacs-test (expand-file-name "ergoemacs-test.el" ergoemacs-dir) nil t))
+
+(defun ergoemacs-where-is-old-binding ()
+  "Find where the old binding of a key is now located."
+  (interactive)
+  (let (ergoemacs-mode
+        key-seq
+	cmd
+        key-seq2)
+    (unwind-protect
+        (progn
+          (setq overriding-terminal-local-map (ergoemacs :original  global-map))
+          (setq key-seq (read-key-sequence "Old Emacs Command: ")
+                cmd (key-binding key-seq)
+                overriding-terminal-local-map nil
+                key-seq2 (where-is-internal cmd nil t)))
+      (setq overriding-terminal-local-map nil))
+    (message "%s; %s" key-seq key-seq2)
+    (if key-seq2
+        (message "Old Emacs Key: %s-> Ergoemacs Key: %s" (ergoemacs-key-description  key-seq)
+                 (ergoemacs-key-description key-seq2))
+      (message "Could not find old emacs %s" (ergoemacs-key-description key-seq)))))
 
 (provide 'ergoemacs-functions)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
