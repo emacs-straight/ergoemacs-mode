@@ -380,7 +380,9 @@ These keys do not depend on the layout."
   (define-key keymap (kbd "C-x <ergoemacs-timeout>") 'ergoemacs-cut-line-or-region)
   (define-key keymap (kbd "C-c <ergoemacs-timeout>") 'ergoemacs-copy-line-or-region)
 
-  (define-key keymap (kbd "C-h '") 'ergoemacs-describe-current-theme))
+  (define-key keymap (kbd "C-h '") 'ergoemacs-describe-current-theme)
+  (when (eq system-type 'windows-nt)
+    (define-key keymap (kbd "<M-f4>") 'kill-emacs)))
 
 (defun ergoemacs-set-move-char (keymap)
   "Movement by Characters & Set Mark for KEYMAP."
@@ -618,8 +620,8 @@ These keys do not depend on the layout."
   (ergoemacs-define-key keymap (kbd "<apps> SPC") 'set-mark-command)
   (ergoemacs-define-key keymap (kbd "<apps> a") 'mark-whole-buffer)
 
-  (ergoemacs-define-key ergoemacs-override-keymap (kbd "<apps> f") 'ergoemacs-command-loop-C-x-ctl-to-alt)
-  (ergoemacs-define-key ergoemacs-override-keymap (kbd "<apps> d") 'ergoemacs-command-loop-C-c-unchorded)
+  (ergoemacs-define-key ergoemacs-override-keymap (kbd "<apps> d") 'ergoemacs-command-loop-C-x-ctl-to-alt)
+  (ergoemacs-define-key ergoemacs-override-keymap (kbd "<apps> f") 'ergoemacs-command-loop-C-c-unchorded)
 
   (ergoemacs-define-key	ergoemacs-override-keymap (kbd "<menu> n") 'org-agenda (kbd "a"))
   (ergoemacs-define-key	ergoemacs-override-keymap (kbd "<menu> n") 'org-capture (kbd "A"))
@@ -1306,7 +1308,6 @@ In a terminal, this can be either arrow keys (e.g. meta+O A == <up>) or regular 
   
 
   (ergoemacs-install-isearch-mode)
-  (ergoemacs-install-comint-bindings)
 
   (ergoemacs-set-remaps ergoemacs-override-keymap)
   (ergoemacs-set-quit)
@@ -1341,10 +1342,10 @@ In a terminal, this can be either arrow keys (e.g. meta+O A == <up>) or regular 
     (ergoemacs-set-kill-line map)
     (ergoemacs-set-text-transform map)
     (ergoemacs-set-select-items map)
-    (ergoemacs-fix-arrow-keys map))
+    (ergoemacs-fix-arrow-keys map)
+    (ergoemacs-set-apps map))
   
   (ergoemacs-install-isearch-mode)
-  (ergoemacs-install-comint-bindings)
 
   (ergoemacs-set-remaps ergoemacs-override-keymap)
   (ergoemacs-set-quit)
@@ -1425,21 +1426,6 @@ In a terminal, this can be either arrow keys (e.g. meta+O A == <up>) or regular 
 
 (add-hook 'eshell-post-command-hook #'ergoemacs-install-eshell-bindings)
 
-(require 'comint)
-(defun ergoemacs-install-comint-bindings ()
-  "Install comint key bindings."
-  (ergoemacs-save-key-state
-   'comint-mode-map
-   (define-key comint-mode-map [remap move-beginning-of-line] 'comint-bol)
-   (if (string-equal ergoemacs-theme "reduction")
-       (progn
-         (ergoemacs-define-key comint-mode-map (kbd "<delete>") 'comint-delchar-or-maybe-eof)
-         (ergoemacs-define-key comint-mode-map (kbd "M-f") 'comint-delchar-or-maybe-eof)
-         (ergoemacs-define-key comint-mode-map (kbd "C-g") 'comint-delchar-or-maybe-eof))
-     (ergoemacs-define-key comint-mode-map (kbd "<delete>") 'comint-delchar-or-maybe-eof)
-     (ergoemacs-define-key comint-mode-map (kbd "M-f") 'comint-delchar-or-maybe-eof)
-     (ergoemacs-define-key comint-mode-map (kbd "C-g") 'comint-delchar-or-maybe-eof))))
-
 (defun ergoemacs-install-dired-bindings ()
   "Install `dired-mode-map' bindings."
   (ergoemacs-save-key-state
@@ -1473,6 +1459,7 @@ In a terminal, this can be either arrow keys (e.g. meta+O A == <up>) or regular 
 (defvar calc-mode-map)
 (defun ergoemacs-install-calc-bindings ()
   "Install `calc-mode' bindings."
+  ;; These are above `ergoemacs-mode'
   (ergoemacs-save-key-state
    'comint-mode-map
    (define-key calc-mode-map [remap ergoemacs-undo] 'calc-undo)
