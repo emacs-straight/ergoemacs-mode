@@ -112,16 +112,25 @@ KEY3 is the optional third key in the sequence."
   (setq ergoemacs--temporary-disable t
         this-command last-command)
   ;; Restore the prefix arg
-  (prefix-command-preserve-state)
+  (ergoemacs-prefix-command-preserve-state)
   ;; Push the key back on the event queue
   (when key3
-    (setq unread-command-events (cons (cons 'no-record key3)
-                                      unread-command-events)))
+    (if (version< emacs-version "26.2")
+        (setq unread-command-events (cons key3
+                                          unread-command-events))
+      (setq unread-command-events (cons (cons 'no-record key3)
+                                        unread-command-events))))
   (when key2
-    (setq unread-command-events (cons (cons 'no-record key2)
-                                      unread-command-events)))
-  (setq unread-command-events (cons (cons 'no-record key)
-                                    unread-command-events)))
+    (if (version< emacs-version "26.2")
+        (setq unread-command-events (cons key2
+                                          unread-command-events))
+      (setq unread-command-events (cons (cons 'no-record key2)
+                                        unread-command-events))))
+  (if (version< emacs-version "26.2")
+      (setq unread-command-events (cons key
+                                        unread-command-events))
+    (setq unread-command-events (cons (cons 'no-record key)
+                                      unread-command-events))))
 
 (defun ergoemacs-kill-line ()
   "Ergoemacs replacement for `kill-line' using `ergoemacs--send-emacs-key'."
@@ -2032,7 +2041,7 @@ initial pair in the unread command events."
         (setq last-input-event tmp)
         (setq prefix-arg current-prefix-arg)
         (setq unread-command-events (append (listify-key-sequence tmp) unread-command-events))
-        (prefix-command-preserve-state))
+        (ergoemacs-prefix-command-preserve-state))
     (if (region-active-p)
         (let ((p1 (region-beginning))
               (p2 (region-end)))

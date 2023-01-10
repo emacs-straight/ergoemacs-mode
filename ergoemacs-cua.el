@@ -186,6 +186,13 @@ This override is enabled for active regions before the copy and paste are enable
       (setq overriding-terminal-local-map nil))
     (ergoemacs--select-keymaps)))
 
+(defun ergoemacs-prefix-command-preserve-state ()
+  "Compatibility layer for `prefix-command-preserve-state'."
+  (if (fboundp 'prefix-command-preserve-state)
+      (prefix-command-preserve-state)
+    (setq prefix-arg current-prefix-arg)
+    (reset-this-command-lengths)))
+
 (defun ergoemacs--prefix-override-replay (repeat)
   "This replays the events from the intial key press.
 
@@ -212,10 +219,13 @@ REPEAT is the flag that tells it if is repeated environmennt."
     ;; This should make it so that exchange-point-and-mark gets the prefix when
     ;; you do C-u C-x C-x C-x work (where the C-u is properly passed to the C-x
     ;; C-x binding after the first C-x C-x was rewritten to just C-x).
-    (prefix-command-preserve-state)
+    (ergoemacs-prefix-command-preserve-state)
+    
     ;; Push the key back on the event queue
-    (setq unread-command-events (cons (cons 'no-record key)
-                                      unread-command-events))))
+    (if (version< emacs-version "26.2")
+        (setq unread-command-events (cons key unread-command-events))
+      (setq unread-command-events (cons (cons 'no-record key)
+                                        unread-command-events)))))
 
 
 (defun ergoemacs--prefix-override-handler ()
@@ -296,7 +306,7 @@ PREFIX is the key prefix that is being sent for these keys."
   ;; This should make it so that exchange-point-and-mark gets the prefix when
   ;; you do C-u S-C-x C-x work (where the C-u is properly passed to the C-x
   ;; C-x binding after the first S-C-x was rewritten to just C-x).
-  (prefix-command-preserve-state)
+  (ergoemacs-prefix-command-preserve-state)
   ;; Activate the cua--prefix-repeat-keymap
   (setq ergoemacs--prefix-override-timer 'shift)
   ;; Push duplicate keys back on the event queue
